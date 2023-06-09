@@ -1,0 +1,61 @@
+name: Automated Reminder
+
+on:
+  schedule:
+    # Set the interval for the reminder (every 3 days)
+    - cron: "55 15 * * 5"
+
+jobs:
+  reminder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Reminder
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get the current date
+          CURRENT_DATE=$(date +%Y-%m-%d)
+          # Calculate the date for the next reminder (3 days from now)
+          NEXT_REMINDER=$(date -d "+3 days" +%Y-%m-%d)
+          # Create the reminder issue using the GitHub API
+          RESPONSE=$(curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            https://api.github.com/repos/{Chaps76}/{test}/issues \
+            -d '{"title": "Reminder", "body": "Next reminder: '$NEXT_REMINDER'"}')
+          # Extract the issue number from the response
+          ISSUE_NUMBER=$(echo $RESPONSE | jq -r ".number")
+          # Get the previous reminder issue number from the repository settings
+          PREVIOUS_ISSUE_NUMBER=$(curl -X GET \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            https://api.github.com/repos/{Chaps76}/{test}/issues/comments \
+            | jq -r ".[].body | select(. | contains(\"Next reminder\"))" \
+            | sed -n "s/Next reminder: //p" \
+            | awk '{print $1}')
+          # Close the previous reminder issue
+          if [ ! -z "$PREVIOUS_ISSUE_NUMBER" ]; then
+            curl -X PATCH \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              https://api.github.com/repos/{Chaps76}/{test}/issues/$PREVIOUS_ISSUE_NUMBER \
+              -d '{"state": "closed"}'
+          fi
+          # Link the new reminder issue with the live issue
+          curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            https://api.github.com/repos/{Chaps76}/{test}/issues/$ISSUE_NUMBER/comments \
+            -d '{"body": "This reminder is linked to issue #'$ISSUE_NUMBER'."}'
+          # Change the status of the live issue back to "To Do"
+          curl -X PATCH \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            https://api.github.com/repos/{Chaps76}/{test}/issues/$ISSUE_NUMBER \
+            -d '{"state": "open"}'
+          # Link the issue with the project board
+          curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            https://api.github.com/projects/columns/{Todo}/cards \
+            -d '{"content_id": '$ISSUE_NUMBER', "content_type": "Issue"}'
