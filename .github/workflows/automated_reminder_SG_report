@@ -1,61 +1,106 @@
-name: Automated Reminder
-
+# Create issue in repository
+name: Create Issue
 on:
-  schedule:
-    # Set the interval for the reminder (every 3 days)
-    - cron: "55 15 * * 5,6"
+  workflow_dispatch:
 
 jobs:
-  reminder:
+  create_issue:
     runs-on: ubuntu-latest
     steps:
-      - name: Create Reminder
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Get the current date
-          CURRENT_DATE=$(date +%Y-%m-%d)
-          # Calculate the date for the next reminder (3 days from now)
-          NEXT_REMINDER=$(date -d "+3 days" +%Y-%m-%d)
-          # Create the reminder issue using the GitHub API
-          RESPONSE=$(curl -X POST \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            https://api.github.com/repos/{Chaps76}/{test}/issues \
-            -d '{"title": "Reminder", "body": "Next reminder: '$NEXT_REMINDER'"}')
-          # Extract the issue number from the response
-          ISSUE_NUMBER=$(echo $RESPONSE | jq -r ".number")
-          # Get the previous reminder issue number from the repository settings
-          PREVIOUS_ISSUE_NUMBER=$(curl -X GET \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            https://api.github.com/repos/{Chaps76}/{test}/issues/comments \
-            | jq -r ".[].body | select(. | contains(\"Next reminder\"))" \
-            | sed -n "s/Next reminder: //p" \
-            | awk '{print $1}')
-          # Close the previous reminder issue
-          if [ ! -z "$PREVIOUS_ISSUE_NUMBER" ]; then
-            curl -X PATCH \
-              -H "Accept: application/vnd.github.v3+json" \
-              -H "Authorization: Bearer $GITHUB_TOKEN" \
-              https://api.github.com/repos/{Chaps76}/{test}/issues/$PREVIOUS_ISSUE_NUMBER \
-              -d '{"state": "closed"}'
-          fi
-          # Link the new reminder issue with the live issue
-          curl -X POST \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            https://api.github.com/repos/{Chaps76}/{test}/issues/$ISSUE_NUMBER/comments \
-            -d '{"body": "This reminder is linked to issue #'$ISSUE_NUMBER'."}'
-          # Change the status of the live issue back to "To Do"
-          curl -X PATCH \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            https://api.github.com/repos/{Chaps76}/{test}/issues/$ISSUE_NUMBER \
-            -d '{"state": "open"}'
-          # Link the issue with the project board
-          curl -X POST \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            https://api.github.com/projects/columns/{Todo}/cards \
-            -d '{"content_id": '$ISSUE_NUMBER', "content_type": "Issue"}'
+      - name: Create Issue
+        uses: actions/github-script@v5
+        with:
+          script: |
+            const { data: { number: issueNumber } } = await github.rest.issues.create({
+              owner: context.Chaps76,
+              repo: context.repo.test,
+              title: 'Your Issue Title',
+              body: 'Your Issue Description'
+            });
+            console.log(`Created issue ${issueNumber}`);
+
+# Make that issue repeat every 20 minutes
+name: Repeat Issue
+on:
+  schedule:
+    - cron: "20 * * * *" 
+  jobs:
+    repeat_issue:
+      runs-on: ubuntu-latest
+      steps:
+        - name: repeat issue
+          uses: actions/github-script@v5
+          with:
+            script: |
+              await github.rest.issues.addLabels({
+                owner: context.Chaps76,
+                repo: context.repo.test,
+                issue_number: context.issue.number,
+                labels: ['Recurring']
+              });
+
+# Link that issue to a project board
+name: Link Issue to Project Board
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue Number'
+        required: true
+  jobs:
+    link_to_project_board:
+      runs-on: ubuntu-latest
+      steps:
+        - name: Link Issue
+          uses: actions/github-script@v5
+          with:
+            script: |
+              const { data: projectCards } = await github.rest.projects.listCards({
+                column_id: 'mother_board-test' // Replace with the ID of the column on the project board
+              });
+              const cardId = projectCards[0].id;
+              await github.rest.projects.createCard({
+                column_id: cardId,
+                content_id: context.repo.test,
+                content_type: 'Repository'
+              });
+
+# Whenever the issue repeats, reset the status of the issue to 'to do'
+name: Reset Issue Status
+on:
+  schedule:
+    - cron: "25 * * * *" # Run every Monday at midnight
+  jobs:
+    reset_issue_status:
+      runs-on: ubuntu-latest
+      steps:
+        - name: Reset Issue Status
+          uses: actions/github-script@v5
+          with:
+            script: |
+              await github.rest.issues.update({
+                owner: context.Chaps76,
+                repo: context.repo.test,
+                issue_number: context.issue.number,
+                state: 'open'
+              });
+
+# Whenever the issue repeats, delete the previous version of the issue
+name: Delete Previous Issue Version
+on:
+  schedule:
+    - cron: "25 * * * *" # Run every Monday at midnight
+  jobs:
+    delete_previous_issue:
+      runs-on: ubuntu-latest
+      steps:
+        - name: Delete Issue
+          uses: actions/github-script@v5
+          with:
+            script: |
+              await github.rest.issues.delete({
+                owner: context.Chaps76,
+                repo: context.repo.test,
+                issue_number: context.issue.number
+              });
+
