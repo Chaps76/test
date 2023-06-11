@@ -1,7 +1,7 @@
 name: Reset Issue Status
 on:
   schedule:
-    - cron: "0 * * * 0" 
+    - cron: "* 12 * * 7" 
   jobs:
     reset_issue_status:
       runs-on: ubuntu-latest
@@ -13,6 +13,12 @@ on:
               await github.rest.issues.update({
                 owner: Chaps76,
                 repo: test,
-                issue_number: test-repeat-issue #2,
-                state: 'open'
+                issue_number: test_repeat_issue,
+                state: 'Todo'
               });
+              
+            env:
+              GITHUB_TOKEN: ${{ secrets.reset_issues_status }}
+            with:
+              script: |
+            const github = require('@actions/github');
